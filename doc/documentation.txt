@@ -1,0 +1,318 @@
+Bywaf Developer documentation
+=============================
+
+Bywaf is a command-line tool for streamlining web application firewall
+auditing. It consists of a command-line interpreter and a set of
+plugins. This document describes the Bywaf application's architecture,
+the API it provides for plugins and the requirements for writing
+plugins.
+
+
+Table of contents
+----------------
+1. Architectural overview
+2. Overridden Cmd methods
+3. Native Wafterpreter methods
+4. Wafterpreter API and utility methods
+5. Plugin requirements
+
+
+Architectural overview
+----------------------
+
+The Bywaf application is built on Python's built-in cmd.Cmd class. Cmd
+is a lightweight command interpreter loop that provides several useful
+facilities for the developer, including overridable hook methods and
+easy addition of commands and help.  For the user, it offers
+commandline editing with readline, including automatic tab completion
+of commands, command options and filenames.
+
+Bywaf contains a sub-classed version of Cmd called Wafterpreter, which
+adds some important additions, including:
+
+   - Loading and selecting plugins
+   - Getting and setting global and per-plugin options
+   - Additional methods exposing functionality to the plugins
+   - Backgrounding jobs, ending running jobs and querying job status
+   - Loading scripts from the the command-line or within the interpreter   
+   - Loading, saving, showing and clearing the command history
+
+Wafterpreter employs a simple plugin system consisting of python
+modules containing commands exposed to the user (functions starting
+with "do_") and a dictionary of user-modifiable options ("options").
+
+A number of Wafterpreter methods have been exposed to plugins,
+allowing them to change the interpreter's behavior and access other
+modules' options.
+
+For notifications of changes in plugin options, Bywaf supports
+callback functions.  The Wafterpreter will call a function for a given
+plugin option if it begins with "set_"; for example, for an option
+like "FILENAME", the Wafterpreter will search for and call a
+set_FILENAME(), if it exists.  The Wafterpreter will also search for
+and call "set_default()", if it exists, for any option that does not
+have a specific setter function.  Failing these attempts, Wafterpreter
+will perform a direct assignment on the plugin's option. 
+
+
+Overriden Cmd methods
+---------------------
+
+In order to accommodate the extra functionality required by Bywaf,
+Wafterpreter overrides the following Cmd methods:
+
+  - onecmd(): executes a user command.  Overriden to add job
+    backgrounding functionality.
+  - postcmd(): called on completion of a user command.  Overridden to
+    notify user of completed jobs.
+  - postloop(): called on exit from the command loop.  Overridden to
+    display a farewell message.
+  - emptyline(): called on empty input lines. The default
+    Cmd.emptyline() returns True, causing Cmd.commandloop() to exit.
+    Overridden to return nothing. 
+  - getnames(): Overridden to return list of instance properties
+    ("self") rather than class properties ("self.__class__"), thus
+    including dynamically-added command functions.
+  - completenames(): overridden to add a space to first-level
+    completion of commands.
+
+
+Built-in Wafterpreter commands
+------------------------------
+
+Internal commands take the form of callback methods defined in the
+Wafterpreter's class definition, or as callback functions defined in a
+plugin module.  When a command is entered at the command-line,
+Wafterpreter searches for a corresponding method or loaded plugin
+module function whose name begins with "do_" and ends with the command
+name.
+
+The following native commands are available in Wafterpreter:
+
+  - do_use(): select a module.
+  
+  - do_kill(): kills a running command. 
+    commands in the job queue.
+    
+  - do_d(): removes a completed command from the job queue.
+
+  - do_result(): displays the return result of a completed command.
+
+  - do_script(): executes a script given a filename.  A script is a
+    list of commands, one per line.  Among other things, this is useful
+    for loading a configuration.  
+    
+  - do_gshow(): shows global options.  
+  
+  - do_set(): when a plugin is loaded, do_set() shows its options and
+    functions available to the user.
+    
+  - do_show(): shows the currently-selected plugin's options and
+    commands available to the user. 
+    
+  - do_shell(): executes a command in a system shell.  
+    
+  - do_history(): shows, clears, loads and saves the command history.
+    
+  - complete_ functions: Commands may have a corresponding
+    tab-completion function.  This gets called after a user types the
+    command name and hits the tab key.  complete_ functions are
+    expected to return a list of matching completions to the 
+    command-line string.  
+    
+    A utility method named "filename_completer()" is available for
+    completing filenames on POSIX-compliant systems.
+
+  - help_ functions: Commands may have a corresponding help function,
+    prefixed with "help_".  This is called when the user issues "help"
+    on that command.  It is expected to return a string with help
+    documentation.  If a corresponding help_ function does not exist,
+    then help documentation will be taken from the command's
+    docstring. 
+
+
+Wafterpreter API and utility methods
+------------------------------------
+
+The Wafterpreter API encompasses methods used by both the plugins as
+well as the Wafterpreter's own methods; this allows for plugins to
+refining its behavior by assigning their own methods in their place.
+Utility methods are time-saving shortcuts; while the API methods are
+the preferred way to change the interpreter's behavior and to perform
+queries for jobs.  
+
+  - filename_completer(): a utility method and API that when given a set
+    of starting and ending indices of the current word under the
+    command-line cursor, returns the available filenames the word
+    matches.  This parameters to this method are supplied to
+    completion methods, which can in turn pass them to this method.
+  - get_job(): this utility method retrieves a Futures instace from the
+    Wafterpreter's internal list of completed and running jobs, given
+    its job ID.  This is useful in querying information about
+    individual jobs (see do_kill() for an example). 
+   - finished_job_callback(): This overridable method is called upon the
+    completion of a backgrounded job.  It is used by the onecmd()
+    method to notify the user when a backgrounded job has finished.
+  - set_prompt(): an API method for setting the prompt to reflect a
+    new plugin name.
+  - get_history_item(): an API method returning the command history
+  - save_history(): an API method for saving the command history to a file
+  - load_history(): an API method for loading the command history from a file
+  - clear_history(): an API method for clearing the command history
+  
+  - _load_module(): a private low-level method for loading modules.
+    Gets called by do_use().  There should not be a reason for
+    its use outside that method.
+
+
+Plugin requirements
+-------------------
+
+A plugin is a module containing an optional dictionary of options and
+zero or more command functions (i.e. functions whose names start with
+"do_").  It it is loaded when the user types "use <plugin-name>", where
+<plugin-name> is the filename of a plugin's Python module.  
+
+The "use" command calls Wafterpreter's do_use() to load the plugin.  
+This method physically loads the module with load_module(), adds the
+module to Wafterpreter's list of loaded plugins, and changes the
+prompt to reflect the newly selected plugin. Additionally, it provides
+the plugin with a link back to the Wafterpreter instance assigning
+"self" to a new module property named "app".
+
+A plugin's path is made availabe upon loading in the plugin's .plugin_path property.
+
+If a plugin has a function named "init_plugin()" accepting no
+arguments, it will be called upon plugin load.
+
+
+What your plugin needs to define:
+---------------------------------
+
+As stated above, there is no requirement for a a plugin's module to
+define anything.  There are instances where a plugin does not take any
+options, and there are instances where a plugin may not offer any user
+commands.  
+
+For modules offering or requiring options, Wafterpreter expects them
+to define an options dictionary in a specific format: they must take
+the form:
+
+  options = {
+    option_name: (name, value, default_value, required, description) 
+  }
+  
+where:
+
+  - "option_name" is a string containing the option's name, 
+  - "value" is a string containing the option's current value,
+  - "default_value" is a string containing the option's default value,
+  - "required" is a string of "Yes" or "No" describing whether or not this
+    option must be set, and 
+  - "description" is a one-line description of the option.  
+
+A plugin module's functions will automatically be exposed as commands
+to the user if their names start with "do_".  These functions may be
+complemented with help_ and complete_ functions, just as do_ methods
+in the Wafterpreter's class definition may be complemented with
+complete_ and help_ methods.
+
+
+An example plugin definition appears in test.py.
+
+
+
+Host Database (HostDB)
+======================
+
+Bywaf gives plugins the ability to save host and port information to
+its internal database, contained in the Wafterpreter instance's
+("self.db").  Its implementation can be found in hostdb.py.  
+
+
+HostDB Instance API Methods
+------------------
+
+The HostDB instance provides these database methods:
+
+
+    - add_host():  Add a host to the database, where:
+           - host_ip: a string containing the host's Internet Protocol (IPv4) number
+           - host_name: the name associated with this host
+
+    - add_port():  Add port information for a given host to the database, where:
+           - host_ip:  a string containing the host's Internet Protocol (IPv4) number
+           - port_number:  a string containing the port number
+           - port_protocol: one of "tcp", "udp"
+           - service_name: name of the service or program responding to queries on this port
+           - status: can be "Open", "Closed", or "Filered".
+
+    - get_host_portinfo  Return all port information for the specified host, where:
+           - host_ip: a string containing the host's Internet Protocol (IPv4) number
+
+    - list_matching_ports():  Return all hosts who have this port open, where:
+           - port_number:  a string containing the port number
+           - port_protocol: one of "tcp", "udp"
+           - service_name: name of the service or program responding to queries on this port
+           - status:  Can be "Open", "Closed", or "Filtered". [future work: make this optional]
+	   
+    - get_hostid(): return the internal database ID of the host whose IPv4 address matches the supplied argument
+           - hostip:  IPv4 address string of an existing host in the HostDB database
+	   
+    - get_host_portlist():  Return all port information for the specified host as a list of PortInfo objects
+           - hostip:  IPv4 address string containing the host's Internet Protocol (IPv4) address"""
+	   
+    - get_hostip_list():  Return a list of all hosts in the database, as HostInfo objects
+    
+
+
+
+HostDB Data Containers:
+-----------------------
+
+HostDB query functions return data in the form of classes shown below:
+
+
+     - PortInfo: a class for holding port information returned from HostDB queries
+       state.  It contains the following fields:
+        
+        - portnum:  integer containing the port number
+        - protocol:  either "tcp" or "udp"
+        - service_name:  Service name of the port (usually taken from /etc/services in Posix environments)
+        - state:  One of "open", "closed" or "filtered"
+
+      - HostInfo: a class for holding host information returned from HostDB queries
+        - ports:  collection of PortInfo objects
+	- hostip:  host's IPv4 address, as a string
+	- hostname: host's name
+
+
+HostDB Module Utility API Methods:
+----------------------------------
+
+     - is_tcpip_addr():  Returns True if the string specified is a valid TCPv4 address and False otherwise
+           - tcpip_addr:  a string containing the host's IPv4 address
+     - 
+
+HostDB Exceptions
+-----------------
+
+The HostDB module defines several exceptions which are thrown by
+HostDB methods:
+
+    - InvalidAddressError:  Thrown when an invalid IPv4 string was
+      supplied by the caller. Erroneous IP Address stored in ".hostip"
+      
+    - InvalidProtocolError:  Thrown when an invalid protocol string
+      (i.e. neither 'tcp' nor 'udp') was supplied by the caller.
+      Erroneous protocol string stored in ".protocol"
+      
+    - InvalidStateError: Thrown when an invalid port state string
+      (i.e. none of 'open', 'closed' or 'filtered') was supplied by the
+      caller.  Erroneous state string stored in ".state"
+    
+
+   
+
+
+
