@@ -11,12 +11,19 @@ options = {
 from itertools import count
 import time
 
+# from python 3, available in python2 via 'pip'
+import ipaddr
+
 app = None
 
 
 # ------------
 # Plugin commands
-
+def do_scan():
+    """scan according to"""
+    subnet_string = options[SUBNET]
+    subnet = ipaddr.IPv4Address('192.0.2.1')
+    
 
 def do_produce_hosts(*_):
     """example: add 100 host entries to the database"""
